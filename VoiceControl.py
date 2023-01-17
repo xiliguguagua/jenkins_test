@@ -733,7 +733,7 @@ class VoiceClass:
 
     @decoratorUtils.check_class_param_type()
     @decoratorUtils.check_status_class()
-    def add_wav_head(self, data : bytes, bps : int = 384000):
+    def add_wav_head(self, data : bytes):
         head = b''
         head += b'RIFF'  # 资源交换文件标志
         head += (len(data) + 0x2c - 0x8).to_bytes(4, byteorder='little')  # 下个地址开始文件总字节数
@@ -743,7 +743,7 @@ class VoiceClass:
         head += (0x1).to_bytes(2, byteorder='little')  # 格式种类-线性PCM编码(0x0001)
         head += self.channels.to_bytes(2, byteorder='little')  # 通道数
         head += self.rate.to_bytes(4, byteorder='little')  # 采样率
-        head += bps.to_bytes(4, byteorder='little')  # 每秒字节数
+        head += (self.rate * 2).to_bytes(4, byteorder='little')  # 每秒字节数
         head += (2).to_bytes(2, byteorder='little')  # 块对齐
         head += (0x10).to_bytes(2, byteorder='little')  # 采样比特数
         head += b'data'  # data块标志
@@ -912,7 +912,7 @@ class VoiceClass:
     @decoratorUtils.check_class_param_type()
     @decoratorUtils.check_status_class()
     @decoratorUtils.func_log()
-    def model_load(self, path : str = rf"{get_bmclient()}/bmatEnv/Lib/site-packages/bmdriver/LGBM_model.pkl"):
+    def model_load(self):
         '''
         VoiceControl :: load machine learning model
         读取爆破音检测模型
@@ -921,6 +921,7 @@ class VoiceClass:
           'DESC'='',说明}
         '''
         try:
+            path = rf"{get_bmclient()}/bmatEnv/Lib/site-packages/bmdriver/LGBM_model.pkl"
             with open(path, 'rb') as fin:
                 model = pickle.load(fin)
                 self.booming_model = ML_model([model])
@@ -942,6 +943,11 @@ class VoiceClass:
           'DESC'='',说明}
         """
         try:
+            if self.booming_model == None: # 模型未加载，尝试加载模型
+                load_res = self.model_load()
+                if load_res['RESULT'] != '1':
+                    self.logger.error(f"VoiceControl :: {load_res['DESC']}")
+                    return dataUtils.FuncResult(result="-1", desc=str(load_res['DESC']), name=self.set_model_thresh).get_data()
             self.booming_model.set_thresh(thresh)
             return dataUtils.FuncResult(result="1", desc='set threshold success', name=self.set_model_thresh).get_data()
         except Exception as e:
