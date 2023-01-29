@@ -74,6 +74,7 @@ class VoiceClass:
         self.booming_times = 0
         self.booming_time_record = []
         self.booming_score_record = np.array([])
+        self.booming_thred_start = False
         self.thread_flag = False  # 读取音频线程运行状态
         # 断言参数
         self.dbfs_limit = None
@@ -837,6 +838,13 @@ class VoiceClass:
           'DESC'='',说明}
         '''
         try:
+            if self.booming_thred_start: # 防止重复开爆破音检测线程
+                self.logger.debug("VoiceControl :: booming check thread already started, call STOP first to restart")
+                return dataUtils.FuncResult(result="-1", desc='booming check thread already started, call STOP first to restart',
+                                            name=self.start_booming_check).get_data()
+            else:
+                self.booming_thred_start = True
+
             if check_every_n_data < 1:
                 self.logger.error("VoiceControl :: check_every_n_data too small")
                 return dataUtils.FuncResult(result="-1", desc='check_every_n_data too small', name=self.start_booming_check).get_data()
@@ -890,6 +898,7 @@ class VoiceClass:
         try:
             self.booming_to_check_open = False  #  self.booming_to_check停止入队
             self.booming_start = False  #  检测线程停止
+            self.booming_thred_start = False  # 检测线程可以被执行
 
             if self.booming_now_saving:  #  停止前还有在保存的样本，直接保存当前采集结果
                 save_thread = Thread(target=self.booming_save, args=(list(deepcopy(self.booming_to_save)), ), daemon=True)
