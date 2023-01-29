@@ -73,6 +73,7 @@ class VoiceClass:
         self.booming_threshold = 4.5
         self.booming_times = 0
         self.booming_time_record = []
+        self.booming_score_record = np.array([])
         self.thread_flag = False  # 读取音频线程运行状态
         # 断言参数
         self.dbfs_limit = None
@@ -754,17 +755,16 @@ class VoiceClass:
         if len(save_frame) == 0:
             self.logger.debug("VoiceControl :: to_save queue is empty!")
             return
-        if self.booming_output_dir[-1] == '/':
-            self.booming_output_dir = self.booming_output_dir[:-1]
-        if not os.path.exists(self.booming_output_dir):
-            os.makedirs(self.booming_output_dir)
+
         wf = wave.open(self.booming_output_dir + '\\' + str(self.booming_save_cnt) + '.wav', 'wb')
+        self.logger.debug("VoiceControl :: open output wav file success")
         self.booming_save_cnt += 1
         wf.setnchannels(self.channels)
         wf.setsampwidth(self.my_audio.get_sample_size(self.FORMAT))
         wf.setframerate(self.rate)
         wf.writeframes(b''.join(save_frame))
         wf.close()
+        self.logger.debug("VoiceControl :: save wav sample success")
 
     @decoratorUtils.check_class_param_type()
     @decoratorUtils.check_status_class()
@@ -805,6 +805,7 @@ class VoiceClass:
                 y, sr = librosa.load(byte_file, sr=48000)
                 feature = self.booming_tensorizer.transform(y, sr)
                 pred = self.booming_model.predict(feature)
+                self.booming_score_record = np.concatenate((self.booming_score_record, pred))  #  记录打分历史
                 if np.sum(pred) > 1:  # 存在1帧异常就视为含有爆破音
                     self.booming_times += 1
                     self.has_booming = True
@@ -891,7 +892,7 @@ class VoiceClass:
             self.booming_start = False  #  检测线程停止
 
             if self.booming_now_saving:  #  停止前还有在保存的样本，直接保存当前采集结果
-                save_thread = Thread(target=self.booming_save, daemon=True)
+                save_thread = Thread(target=self.booming_save, args=(list(deepcopy(self.booming_to_save)), ), daemon=True)
                 save_thread.start()
 
             self.booming_now_saving = False
@@ -904,10 +905,10 @@ class VoiceClass:
             self.booming_to_save = deque(maxlen=0)
             self.booming_to_check = deque(maxlen=0)
 
-            return dataUtils.FuncResult(result="1", desc='booming check stop success', name=self.stop_booming_check).get_data()
+            return dataUtils.FuncResult(result="1", desc='booming check stop success', name=self.stop_booming_check, time_history=self.booming_time_record, score_history=self.booming_score_record, threshold=self.booming_model.threshold).get_data()
         except Exception as e:
             self.logger.error(f"VoiceControl :: {e}")
-            return dataUtils.FuncResult(result="-1", desc=str(e), name=self.stop_booming_check).get_data()
+            return dataUtils.FuncResult(result="-1", desc=str(e), name=self.stop_booming_check, time_history=self.booming_time_record, score_history=self.booming_score_record, threshold=self.booming_model.threshold).get_data()
 
     @decoratorUtils.check_class_param_type()
     @decoratorUtils.check_status_class()
@@ -952,6 +953,18 @@ class VoiceClass:
             return dataUtils.FuncResult(result="1", desc='set threshold success', name=self.set_model_thresh).get_data()
         except Exception as e:
             return dataUtils.FuncResult(result="-1", desc=str(e), name=self.set_model_thresh).get_data()
+
+    @decoratorUtils.check_class_param_type()
+    @decoratorUtils.check_status_class()
+    @decoratorUtils.func_log()
+    def get_has_booming(self):
+        """
+        VoiceControl :: get self.has_booming
+        获取self.has_booming值（bool）
+        :return: {'RESULT': '1',  "-1":异常 "0":失败 "1":"成功"
+          'DESC'='',说明}
+        """
+        return dataUtils.FuncResult(result="1", desc="get self.has_booming success", name=self.get_has_booming, has_booming=self.has_booming).get_data()
 
 
 class ML_model(object):
