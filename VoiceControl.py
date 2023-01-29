@@ -812,8 +812,8 @@ class VoiceClass:
                 # 转换成频谱数据张量送给分类模型，data中至少存在x帧异常后认为data含爆破音
                 y, sr = librosa.load(byte_file, sr=48000)
                 feature = self.booming_tensorizer.transform(y, sr)
-                pred = self.booming_model.predict(feature)
-                self.booming_score_record = np.concatenate((self.booming_score_record, pred))  #  记录打分历史
+                pred, raw = self.booming_model.predict(feature)
+                self.booming_score_record = np.concatenate((self.booming_score_record, raw))  #  记录打分历史
                 if np.sum(pred) > 1:  # 存在1帧异常就视为含有爆破音
                     self.booming_times += 1
                     self.has_booming = True
@@ -927,10 +927,10 @@ class VoiceClass:
             self.booming_to_save = deque(maxlen=0)
             self.booming_to_check = deque(maxlen=0)
 
-            return dataUtils.FuncResult(result="1", desc='booming check stop success', name=self.stop_booming_check, timehistory=self.booming_time_record, scorehistory=self.booming_score_record, threshold=self.booming_model.threshold).get_data()
+            return dataUtils.FuncResult(result="1", desc='booming check stop success', name=self.stop_booming_check, info=self.booming_time_record, log=self.booming_score_record, threshold=self.booming_model.threshold).get_data()
         except Exception as e:
             self.logger.error(f"VoiceControl :: {e}")
-            return dataUtils.FuncResult(result="-1", desc=str(e), name=self.stop_booming_check, timehistory=self.booming_time_record, scorehistory=self.booming_score_record, threshold=self.booming_model.threshold).get_data()
+            return dataUtils.FuncResult(result="-1", desc=str(e), name=self.stop_booming_check, info=self.booming_time_record, log=self.booming_score_record, threshold=self.booming_model.threshold).get_data()
 
     @decoratorUtils.check_class_param_type()
     @decoratorUtils.check_status_class()
@@ -1022,8 +1022,8 @@ class ML_model(object):
         self.history = self.history[len(pred):] + list(pred)
         self.sort_his = sorted(self.history)
         pred = pred - self.sort_his[round(self.quantile * self.his_len)] * np.ones(len(pred))
-        pred = [int(e >= self.threshold) for e in pred]
-        return pred
+        pred0 = [int(e >= self.threshold) for e in pred]
+        return pred0, pred
 
 class AudioTenserize(object):
     '''
