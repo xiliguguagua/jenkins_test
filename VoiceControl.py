@@ -74,6 +74,7 @@ class VoiceClass:
         self.booming_times = 0
         self.booming_time_record = []
         self.booming_score_record = np.array([])
+        self.booming_res_record = np.array([])
         self.booming_thred_start = False
         self.thread_flag = False  # 读取音频线程运行状态
         # 断言参数
@@ -814,6 +815,7 @@ class VoiceClass:
                 feature = self.booming_tensorizer.transform(y, sr)
                 pred, raw = self.booming_model.predict(feature)
                 self.booming_score_record = np.concatenate((self.booming_score_record, raw))  #  记录打分历史
+                self.booming_res_record = np.concatenate((self.booming_res_record, pred))
                 if np.sum(pred) > 1:  # 存在1帧异常就视为含有爆破音
                     self.booming_times += 1
                     self.has_booming = True
@@ -872,6 +874,7 @@ class VoiceClass:
             self.booming_to_check.clear()  # 初始化清空
             self.booming_to_save.clear()
             self.booming_score_record = np.array([])
+            self.booming_res_record = np.array([])
             self.booming_time_record = []
 
             if self.booming_model == None:
@@ -927,10 +930,10 @@ class VoiceClass:
             self.booming_to_save = deque(maxlen=0)
             self.booming_to_check = deque(maxlen=0)
 
-            return dataUtils.FuncResult(result="1", desc='booming check stop success', name=self.stop_booming_check, info=self.booming_time_record, log=self.booming_score_record, threshold=self.booming_model.threshold).get_data()
+            return dataUtils.FuncResult(result="1", desc='booming check stop success', name=self.stop_booming_check, info=self.booming_time_record, log=self.booming_score_record, obj=self.booming_res_record, threshold=self.booming_model.threshold).get_data()
         except Exception as e:
             self.logger.error(f"VoiceControl :: {e}")
-            return dataUtils.FuncResult(result="-1", desc=str(e), name=self.stop_booming_check, info=self.booming_time_record, log=self.booming_score_record, threshold=self.booming_model.threshold).get_data()
+            return dataUtils.FuncResult(result="-1", desc=str(e), name=self.stop_booming_check, info=self.booming_time_record, log=self.booming_score_record, obj=self.booming_res_record, threshold=self.booming_model.threshold).get_data()
 
     @decoratorUtils.check_class_param_type()
     @decoratorUtils.check_status_class()
