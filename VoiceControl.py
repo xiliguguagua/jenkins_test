@@ -789,7 +789,7 @@ class VoiceClass:
         self.logger.debug('VoiceControl :: booming check start')
 
         try:
-            k=0
+            k=0 # for debug log
             while self.booming_start:
                 while len(self.booming_to_check) < check_every_n_data:  #  队列中等待data不够一次检测
                     time.sleep(max(0.1 * (check_every_n_data - len(self.booming_to_check)), 0))  # 等待填充够一次检测时间
@@ -813,10 +813,10 @@ class VoiceClass:
                 # 转换成频谱数据张量送给分类模型，data中至少存在x帧异常后认为data含爆破音
                 y, sr = librosa.load(byte_file, sr=48000)
                 feature = self.booming_tensorizer.transform(y, sr)
-                pred, raw = self.booming_model.predict(feature)
-                self.booming_score_record = np.concatenate((self.booming_score_record, raw))  #  记录打分历史
+                score, pred = self.booming_model.predict(feature)
+                self.booming_score_record = np.concatenate((self.booming_score_record, score))  #  记录打分历史
                 self.booming_res_record = np.concatenate((self.booming_res_record, pred))
-                if np.sum(pred) > 1:  # 存在1帧异常就视为含有爆破音
+                if np.sum(pred) >= 1:  # 存在1次异常视为含有爆破音
                     self.booming_times += 1
                     self.has_booming = True
                     self.now_booming = True
@@ -836,7 +836,7 @@ class VoiceClass:
     @decoratorUtils.check_class_param_type()
     @decoratorUtils.check_status_class()
     @decoratorUtils.func_log()
-    def start_booming_check(self, check_every_n_data : int = 3, que_buffer : int = 100, check_save: bool = True, save_duration: float = 5., threshold: float = 4.5):
+    def start_booming_check(self, check_every_n_data : int = 3, que_buffer : int = 100, check_save: bool = True, save_duration: float = 5., threshold: float = 0):
         '''
         VoiceControl :: start booming check
         开启爆破音检测，初始化检测配置
@@ -930,10 +930,10 @@ class VoiceClass:
             self.booming_to_save = deque(maxlen=0)
             self.booming_to_check = deque(maxlen=0)
 
-            return dataUtils.FuncResult(result="1", desc='booming check stop success', name=self.stop_booming_check, info=self.booming_time_record, log=self.booming_score_record, obj=self.booming_res_record, threshold=self.booming_model.threshold).get_data()
+            return dataUtils.FuncResult(result="1", desc='booming check stop success', name=self.stop_booming_check, booming_times=self.booming_time_record, socres=self.booming_score_record, labels=self.booming_res_record, threshold=self.booming_model.threshold).get_data()
         except Exception as e:
             self.logger.error(f"VoiceControl :: {e}")
-            return dataUtils.FuncResult(result="-1", desc=str(e), name=self.stop_booming_check, info=self.booming_time_record, log=self.booming_score_record, obj=self.booming_res_record, threshold=self.booming_model.threshold).get_data()
+            return dataUtils.FuncResult(result="-1", desc=str(e), name=self.stop_booming_check, booming_times=self.booming_time_record, scores=self.booming_score_record, labels=self.booming_res_record, threshold=self.booming_model.threshold).get_data()
 
     @decoratorUtils.check_class_param_type()
     @decoratorUtils.check_status_class()
@@ -1021,12 +1021,15 @@ class ML_model(object):
         if not 0 < self.quantile < 1:
             print('invalid quantile, set to default 0.8')
             self.quantile = 0.8
-        pred = self.models[0].predict(np.concatenate((features['spec'], features['mfcc']), axis=1), raw_score=True)
-        self.history = self.history[len(pred):] + list(pred)
-        self.sort_his = sorted(self.history)
-        pred = pred - self.sort_his[round(self.quantile * self.his_len)] * np.ones(len(pred))
-        pred0 = [int(e >= self.threshold) for e in pred]
-        return pred0, pred
+        score = self.models[0].predict(np.concatenate((features['spec'], features['mfcc'], features['stft'], features['mel']), axis=1), raw_score=True)
+        # self.history = self.history[len(pred):] + list(pred)
+        # self.sort_his = sorted(self.history)
+        # pred = pred - self.sort_his[round(self.quantile * self.his_len)] * np.ones(len(pred))
+        pred = [int(e >= self.threshold) for e in score]
+        for i in range(1, len(pred)-1):
+            if pred[i-1] + pred[i+1] < 1:
+                pred[i] = 0
+        return score, pred
 
 class AudioTenserize(object):
     '''
@@ -1067,17 +1070,23 @@ class AudioTenserize(object):
         mfcc = librosa.util.normalize(mfcc).T
         features['mfcc'] = mfcc
 
+        # stft feature
+        stft = librosa.feature.chroma_stft(y=y, sr=sr, center=True, n_chroma=self.n_feature)
+        stft = librosa.util.normalize(stft).T
+        features['stft'] = stft
+
+        # mel feature
+        mel = librosa.feature.melspectrogram(y=y, sr=sr, center=True, n_mels=self.n_feature)
+        mel = librosa.util.normalize(mel).T
+        features['mel'] = mel
+
         return features
 
 
 
 # if __name__ == '__main__':
 #     test = VoiceClass()
-#     res = test.start_booming_check()
-#     res = test.stop_booming_check()
-#     print(res)
-#     quit()
-#
-#     input()
-
+#     y, sr = librosa.load('E:\\audio_data\\new\\abnormal_2019-08-01_400_87.wav', duration=0.3, sr=None)
+#     test.model_load()
+#     test.booming_check(0, y, sr)
 
