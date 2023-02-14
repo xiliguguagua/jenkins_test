@@ -778,7 +778,7 @@ class VoiceClass:
     @decoratorUtils.check_class_param_type()
     @decoratorUtils.check_status_class()
     @decoratorUtils.func_log()
-    def booming_check(self, check_every_n_data : int = 3):
+    def booming_check(self, check_every_n_data : int = 3, drop_single : bool = True):
         '''
         VoiceControl :: booming sound check
         爆破音检测，调用start_booming_check后开启检测，调用stop_booming_check后停止检测
@@ -791,6 +791,7 @@ class VoiceClass:
         try:
             k=0 # for debug log
             while self.booming_start:
+            # for i in range(1):
                 while len(self.booming_to_check) < check_every_n_data:  #  队列中等待data不够一次检测
                     time.sleep(max(0.1 * (check_every_n_data - len(self.booming_to_check)), 0))  # 等待填充够一次检测时间
                     if not self.booming_start:
@@ -814,9 +815,16 @@ class VoiceClass:
                 y, sr = librosa.load(byte_file, sr=48000)
                 feature = self.booming_tensorizer.transform(y, sr)
                 score, pred = self.booming_model.predict(feature)
+                score = score.flatten()
+
+                if drop_single:  #  至少连续2帧都是爆破音才判定为有爆破音，丢弃孤立的一帧爆破音
+                    for i in range(1, len(pred) - 1):
+                        if pred[i - 1] + pred[i + 1] < 1:
+                            pred[i] = 0
+
                 self.booming_score_record = np.concatenate((self.booming_score_record, score))  #  记录打分历史
                 self.booming_res_record = np.concatenate((self.booming_res_record, pred))
-                if np.sum(pred) >= 1:  # 存在1次异常视为含有爆破音
+                if np.sum(pred) > 0:
                     self.booming_times += 1
                     self.has_booming = True
                     self.now_booming = True
@@ -836,13 +844,16 @@ class VoiceClass:
     @decoratorUtils.check_class_param_type()
     @decoratorUtils.check_status_class()
     @decoratorUtils.func_log()
-    def start_booming_check(self, check_every_n_data : int = 3, que_buffer : int = 100, check_save: bool = True, save_duration: float = 5., threshold: float = 0):
+    def start_booming_check(self, check_every_n_data : int = 3, que_buffer : int = 100, check_save: bool = True, save_duration: float = 5., threshold: float = 0.432, drop_single: bool = True):
         '''
         VoiceControl :: start booming check
         开启爆破音检测，初始化检测配置
         :param check_every_n_data: 每N个data检测一次，即每N/10秒检测一次
+        :param que_buffer: 待检测缓冲区大小，防止检测速度慢于音频播放速度
         :param check_save: 检测到爆破音后是否自动保存爆破音附近样本
         :param save_duration: 保存爆破音前后x/2秒样本，共x秒
+        :param threshold: 爆破音判定阈值，分数在0~1, 为0则全判定为爆破音，为1则全判定为非爆破音
+        :param drop_single: 是否丢弃孤立的一帧爆破音，即该爆破音前一帧和后一帧都是非爆破音
         :return: {'RESULT': '1',  "-1":异常 "0":失败 "1":"成功"
           'DESC'='',说明
           }
@@ -889,7 +900,7 @@ class VoiceClass:
             self.booming_start = True  # 开启检测flag
             self.booming_to_check_open = True  # 检测队列开始入队
 
-            boomingcheck_thread = Thread(target=self.booming_check, args=(check_every_n_data, ), daemon=True)
+            boomingcheck_thread = Thread(target=self.booming_check, args=(check_every_n_data, drop_single, ), daemon=True)
             boomingcheck_thread.start()
 
             return dataUtils.FuncResult(result="1", desc='booming check start success', name=self.start_booming_check).get_data()
@@ -947,7 +958,7 @@ class VoiceClass:
           'DESC'='',说明}
         '''
         try:
-            path = rf"{get_bmclient()}/bmatEnv/Lib/site-packages/bmdriver/LGBM_model.pkl"
+            path = rf"{get_bmclient()}/bmatEnv/Lib/site-packages/bmdriver/resnet_model.pkl"
             with open(path, 'rb') as fin:
                 model = pickle.load(fin)
                 self.booming_model = ML_model([model])
@@ -994,7 +1005,7 @@ class VoiceClass:
 
 class ML_model(object):
 
-    def __init__(self, models, history : int = 500, threshold : float = 0, quantile : float = 0.8):
+    def __init__(self, models, history : int = 5, threshold : float = 0.432, quantile : float = 0.8):
         '''
         :param models: list [predicting-model]
                     the sub-models used
@@ -1021,14 +1032,11 @@ class ML_model(object):
         if not 0 < self.quantile < 1:
             print('invalid quantile, set to default 0.8')
             self.quantile = 0.8
-        score = self.models[0].predict(np.concatenate((features['spec'], features['mfcc'], features['stft'], features['mel']), axis=1), raw_score=True)
+        score = self.models[0](np.concatenate((features['spec'], features['mfcc'], features['stft'], features['mel'], features['raw_spec']), axis=1))
         # self.history = self.history[len(pred):] + list(pred)
         # self.sort_his = sorted(self.history)
         # pred = pred - self.sort_his[round(self.quantile * self.his_len)] * np.ones(len(pred))
         pred = [int(e >= self.threshold) for e in score]
-        for i in range(1, len(pred)-1):
-            if pred[i-1] + pred[i+1] < 1:
-                pred[i] = 0
         return score, pred
 
 class AudioTenserize(object):
@@ -1062,6 +1070,7 @@ class AudioTenserize(object):
 
         # spectrum feature
         spec = librosa.amplitude_to_db(abs(librosa.stft(y)))
+        features['raw_spec'] = spec.T
         spec = librosa.util.normalize(spec).T
         features['spec'] = spec
 
@@ -1082,11 +1091,71 @@ class AudioTenserize(object):
 
         return features
 
+class Linear: # 神经网络全连接层
+    def __init__(self, i_d, o_d):
+        self.w = np.random.randn(o_d, i_d)
+        self.b = np.random.randn(o_d)
 
+    def __call__(self, x):
+        return np.matmul(x, self.w) + self.b
+
+class Sigmoid: # 神经网络sigmoid激活函数
+    def __call__(self, x):
+        return 1 / (1 + np.exp(-x))
+
+class Tanh:  # 神经网络双曲正弦激活函数
+    def __call__(self, x):
+        return 2 / (1 + np.exp(-2 * x)) - 1
+
+class BatchNorm:  # 神经网络batch norm层
+    def __init__(self, i_d):
+        self.eps = 1e-5
+        self.running_mean = np.random.randn(i_d, i_d)
+        self.running_var = np.random.randn(i_d, i_d)
+
+    def __call__(self, x):
+        return (x - self.running_mean) / np.sqrt(self.running_var + self.eps)
+
+class NPerception:  # 50层残差batch norm网络--目前网络架构不正确但效果可以
+
+    def __init__(self, shape, n_layers):
+        self.L0 = Linear(shape, 128)
+
+        self.layers = []
+        for i in range(n_layers):
+            self.layers.append([Linear(128, 128),
+                                BatchNorm(128)])
+
+        self.L1 = Linear(128, 64)
+        self.L2 = Linear(64, 1)
+        self.T = Tanh()
+        self.S = Sigmoid()
+
+    def __call__(self, inp):
+        out0 = self.L0(inp)
+        out = self.T(out0)
+
+        i = 1
+        for l in self.layers:
+            if i % 3 == 0:
+                out0 = l[0](out) + out0
+                out = self.T(out0)  # act
+                out = l[0](out)  # bn  ##############################################
+            else:
+                out = l[0](out)
+                out = self.T(out)  # act
+                out = l[1](out)  # bn
+            i += 1
+
+        out = self.L1(out)
+        out = self.T(out)
+        out = self.L2(out)
+        out = self.S(out)
+        return out
 
 # if __name__ == '__main__':
 #     test = VoiceClass()
-#     y, sr = librosa.load('E:\\audio_data\\new\\abnormal_2019-08-01_400_87.wav', duration=0.3, sr=None)
+#     y, sr = librosa.load('E:\\audio_data\\new\\abnormal_2019-08-01_400_87.wav', sr=None)
 #     test.model_load()
-#     test.booming_check(0, y, sr)
+#     test.booming_check(0, True, y, sr)
 
