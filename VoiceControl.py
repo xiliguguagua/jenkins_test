@@ -844,7 +844,7 @@ class VoiceClass:
     @decoratorUtils.check_class_param_type()
     @decoratorUtils.check_status_class()
     @decoratorUtils.func_log()
-    def start_booming_check(self, check_every_n_data : int = 3, que_buffer : int = 100, check_save: bool = True, save_duration: float = 5., threshold: float = 0.432, drop_single: bool = True):
+    def start_booming_check(self, check_every_n_data : int = 3, que_buffer : int = 100, check_save: bool = True, save_duration: float = 5., threshold: float = 0.289, drop_single: bool = True):
         '''
         VoiceControl :: start booming check
         开启爆破音检测，初始化检测配置
@@ -1005,7 +1005,7 @@ class VoiceClass:
 
 class ML_model(object):
 
-    def __init__(self, models, history : int = 5, threshold : float = 0.432, quantile : float = 0.8):
+    def __init__(self, models, history : int = 5, threshold : float = 0.289, quantile : float = 0.8):
         '''
         :param models: list [predicting-model]
                     the sub-models used
@@ -1105,7 +1105,7 @@ class Sigmoid: # 神经网络sigmoid激活函数
 
 class Tanh:  # 神经网络双曲正弦激活函数
     def __call__(self, x):
-        return 2 / (1 + np.exp(-2 * x)) - 1
+        return np.tanh(x)
 
 class BatchNorm:  # 神经网络batch norm层
     def __init__(self, i_d):
