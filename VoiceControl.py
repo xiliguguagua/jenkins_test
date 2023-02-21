@@ -810,7 +810,7 @@ class VoiceClass:
                         self.booming_now_saving = False
 
                 byte_file = BytesIO(self.add_wav_head(byte_data))  # 转化成类FILE对象送给librosa读取
-
+                
                 # 转换成频谱数据张量送给分类模型，data中至少存在x帧异常后认为data含爆破音
                 y, sr = librosa.load(byte_file, sr=48000)
                 feature = self.booming_tensorizer.transform(y, sr)
@@ -844,7 +844,7 @@ class VoiceClass:
     @decoratorUtils.check_class_param_type()
     @decoratorUtils.check_status_class()
     @decoratorUtils.func_log()
-    def start_booming_check(self, check_every_n_data : int = 3, que_buffer : int = 100, check_save: bool = True, save_duration: float = 5., threshold: float = 0.289, drop_single: bool = True):
+    def start_booming_check(self, check_every_n_data : int = 3, que_buffer : int = 100, check_save: bool = True, save_duration: float = 5., threshold: float = 0.538, drop_single: bool = True):
         '''
         VoiceControl :: start booming check
         开启爆破音检测，初始化检测配置
@@ -965,7 +965,7 @@ class VoiceClass:
                 return dataUtils.FuncResult(result="1", desc='model load success', name=self.model_load).get_data()
         except Exception as e:
             self.booming_model = None
-            # self.logger.error(f"VoiceControl :: {e}")
+            self.logger.error(f"VoiceControl :: {e}")
             return dataUtils.FuncResult(result="-1", desc=str(e), name=self.model_load).get_data()
 
     @decoratorUtils.check_class_param_type()
@@ -1005,7 +1005,7 @@ class VoiceClass:
 
 class ML_model(object):
 
-    def __init__(self, models, history : int = 5, threshold : float = 0.289, quantile : float = 0.8):
+    def __init__(self, models, history : int = 5, threshold : float = 0.538, quantile : float = 0.8):
         '''
         :param models: list [predicting-model]
                     the sub-models used
@@ -1032,7 +1032,7 @@ class ML_model(object):
         if not 0 < self.quantile < 1:
             print('invalid quantile, set to default 0.8')
             self.quantile = 0.8
-        score = self.models[0](np.concatenate((features['spec'], features['mfcc'], features['stft'], features['mel'], features['raw_spec']), axis=1))
+        score = self.models[0](np.concatenate((features['spec'], features['mfcc'], features['stft'], features['mel']), axis=1))
         # self.history = self.history[len(pred):] + list(pred)
         # self.sort_his = sorted(self.history)
         # pred = pred - self.sort_his[round(self.quantile * self.his_len)] * np.ones(len(pred))
@@ -1116,42 +1116,45 @@ class BatchNorm:  # 神经网络batch norm层
     def __call__(self, x):
         return (x - self.running_mean) / np.sqrt(self.running_var + self.eps)
 
-class NPerception:  # 50层残差batch norm网络--目前网络架构不正确但效果可以
+class NP_block:
 
-    def __init__(self, shape, n_layers):
-        self.L0 = Linear(shape, 128)
+    def __init__(self, dim):
+        self.ffn = [Linear(dim, dim),
+                    BatchNorm(dim),
+                    Tanh(),
+                    Linear(dim, dim),
+                    Tanh(),
+                    Linear(dim, dim)]
+        self.act = Tanh()
 
-        self.layers = []
-        for i in range(n_layers):
-            self.layers.append([Linear(128, 128),
-                                BatchNorm(128)])
+    def __call__(self, x):
+        inp = x
+        for h in self.ffn:
+            x = h(x)
+        return x + inp
 
-        self.L1 = Linear(128, 64)
-        self.L2 = Linear(64, 1)
-        self.T = Tanh()
-        self.S = Sigmoid()
+class NP_net:
 
-    def __call__(self, inp):
-        out0 = self.L0(inp)
-        out = self.T(out0)
+    def __init__(self, inp_dim, dim, num_blocks):
+        self.ffn_in = [Linear(inp_dim, dim),
+                       BatchNorm(dim),
+                       Tanh()]
 
-        i = 1
-        for l in self.layers:
-            if i % 3 == 0:
-                out0 = l[0](out) + out0
-                out = self.T(out0)  # act
-                out = l[0](out)  # bn  ##############################################
-            else:
-                out = l[0](out)
-                out = self.T(out)  # act
-                out = l[1](out)  # bn
-            i += 1
+        self.nets = []
+        for i in range(num_blocks):
+            self.nets.append(NP_block(dim))
 
-        out = self.L1(out)
-        out = self.T(out)
-        out = self.L2(out)
-        out = self.S(out)
-        return out
+        self.ffn_out = [Linear(dim, 1),
+                        Sigmoid()]
+
+    def __call__(self, x):
+        for h in self.ffn_in:
+            x = h(x)
+        for h in self.nets:
+            x = h(x)
+        for h in self.ffn_out:
+            x = h(x)
+        return x
 
 # if __name__ == '__main__':
 #     test = VoiceClass()
