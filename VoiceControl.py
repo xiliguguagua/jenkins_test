@@ -810,7 +810,7 @@ class VoiceClass:
                         self.booming_now_saving = False
 
                 byte_file = BytesIO(self.add_wav_head(byte_data))  # 转化成类FILE对象送给librosa读取
-                
+
                 # 转换成频谱数据张量送给分类模型，data中至少存在x帧异常后认为data含爆破音
                 y, sr = librosa.load(byte_file, sr=48000)
                 feature = self.booming_tensorizer.transform(y, sr)
@@ -958,6 +958,7 @@ class VoiceClass:
           'DESC'='',说明}
         '''
         try:
+            import NP_net
             path = rf"{get_bmclient()}/bmatEnv/Lib/site-packages/bmdriver/resnet_model.pkl"
             with open(path, 'rb') as fin:
                 model = pickle.load(fin)
