@@ -20,6 +20,7 @@ from pydub import AudioSegment
 from pyaudio import PyAudio, paInt16
 from bmlib import decoratorUtils
 from bmlib import dataUtils
+from bmlib import httpUtils
 from bmlib import get_bmclient
 from bmdriver import TestEnvControl
 try:
