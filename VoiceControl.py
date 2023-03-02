@@ -778,7 +778,7 @@ class VoiceClass:
     @decoratorUtils.check_class_param_type()
     @decoratorUtils.check_status_class()
     @decoratorUtils.func_log()
-    def booming_check(self, check_every_n_data : int = 3, drop_single : bool = True):
+    def booming_check(self, check_every_n_data : int = 3, drop_single : bool = True, check_time : float = -1.):
         '''
         VoiceControl :: booming sound check
         爆破音检测，调用start_booming_check后开启检测，调用stop_booming_check后停止检测
@@ -787,6 +787,7 @@ class VoiceClass:
         '''
         self.has_booming = False
         self.logger.debug('VoiceControl :: booming check start')
+        start_time = time.time()
 
         try:
             k=0 # for debug log
@@ -805,9 +806,12 @@ class VoiceClass:
                 if self.booming_now_saving:  #  检测到爆破音且需要保存样本，计数到半个缓冲区后开始导出
                     self.booming_start_time += check_every_n_data
                     if self.booming_start_time >= int(self.booming_to_save.maxlen / 2):  # 导出
-                        save_thread = Thread(target=self.booming_save, args=(list(deepcopy(self.booming_to_save)), ), daemon=True)
-                        save_thread.start()
+                        # save_thread = Thread(target=self.booming_save, args=(list(deepcopy(self.booming_to_save)), ), daemon=True)
+                        # save_thread.start()
+                        self.booming_save(list(deepcopy(self.booming_to_save)))
                         self.booming_now_saving = False
+                        self.logger.error("VoiceControl :: 检测到爆破音，任务即将停止")
+                        httpUtils.base_post(url='http://127.0.0.1:5000/common/testStop', data={"FORCESTALL": "0"})
 
                 byte_file = BytesIO(self.add_wav_head(byte_data))  # 转化成类FILE对象送给librosa读取
 
@@ -835,6 +839,10 @@ class VoiceClass:
                 else:
                     self.now_booming = False
 
+                cur_time = time.time()
+                if check_time > 0 and cur_time - start_time >= check_time:
+                    self.booming_start = False
+
         except Exception as e:
             self.logger.error(f"VoiceControl :: {e}")
             self.stop_booming_check()
@@ -844,7 +852,9 @@ class VoiceClass:
     @decoratorUtils.check_class_param_type()
     @decoratorUtils.check_status_class()
     @decoratorUtils.func_log()
-    def start_booming_check(self, check_every_n_data : int = 3, que_buffer : int = 100, check_save: bool = True, save_duration: float = 5., threshold: float = 0.538, drop_single: bool = True):
+    def start_booming_check(self, check_every_n_data : int = 3, que_buffer : int = 100, check_save: bool = True,
+                            save_duration: float = 5., threshold: float = 0.538, drop_single: bool = True,
+                            check_time : float = -1.):
         '''
         VoiceControl :: start booming check
         开启爆破音检测，初始化检测配置
@@ -900,7 +910,7 @@ class VoiceClass:
             self.booming_start = True  # 开启检测flag
             self.booming_to_check_open = True  # 检测队列开始入队
 
-            boomingcheck_thread = Thread(target=self.booming_check, args=(check_every_n_data, drop_single, ), daemon=True)
+            boomingcheck_thread = Thread(target=self.booming_check, args=(check_every_n_data, drop_single, check_time ), daemon=True)
             boomingcheck_thread.start()
 
             return dataUtils.FuncResult(result="1", desc='booming check start success', name=self.start_booming_check).get_data()
