@@ -958,7 +958,8 @@ class VoiceClass:
           'DESC'='',说明}
         '''
         try:
-            import NP_net
+            # import NP_net
+            temp = NP_net(1,1,1)
             path = rf"{get_bmclient()}/bmatEnv/Lib/site-packages/bmdriver/resnet_model.pkl"
             with open(path, 'rb') as fin:
                 model = pickle.load(fin)
