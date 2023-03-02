@@ -959,10 +959,10 @@ class VoiceClass:
         '''
         try:
             # import NP_net
-            temp = NP_net(1,1,1)  # to prevent NP_net class from not being loaded
-            temp_inp = np.array([1.])
-            temp_out = temp(temp_inp)
-            
+            # temp = NP_net(1,1,1)  # to prevent NP_net class from not being loaded
+            # temp_inp = np.array([1.])
+            # temp_out = temp(temp_inp)
+
             path = rf"{get_bmclient()}/bmatEnv/Lib/site-packages/bmdriver/resnet_model.pkl"
             with open(path, 'rb') as fin:
                 model = pickle.load(fin)
@@ -1138,7 +1138,7 @@ class NP_block:
             x = h(x)
         return x + inp
 
-class NP_net:
+class NPnet:
 
     def __init__(self, inp_dim, dim, num_blocks):
         self.ffn_in = [Linear(inp_dim, dim),
